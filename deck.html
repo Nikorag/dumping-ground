@@ -213,9 +213,11 @@ footer { border-top: 2px solid var(--rule); padding: 16px; font-size: 11px; font
   <canvas id="three-canvas"></canvas>
   <div class="render-controls">
     <button class="ctrl-btn active" id="btn-full" onclick="setView('full')">Full Structure</button>
+    <button class="ctrl-btn" id="btn-decks" onclick="setView('decks')">Both Decks</button>
     <button class="ctrl-btn" id="btn-frame" onclick="setView('frame')">Frame Only</button>
     <button class="ctrl-btn" id="btn-posts" onclick="setView('posts')">Posts</button>
     <button class="ctrl-btn" id="btn-top" onclick="setView('top')">Top-down</button>
+    <button class="ctrl-btn" id="btn-tree" onclick="setView('tree')">Full Tree</button>
     <button class="ctrl-btn" id="btn-reset" onclick="resetCamera()">Reset View</button>
   </div>
 </div>
@@ -483,9 +485,9 @@ function showTab(id, btn) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0d1a0d, 18, 35);
+  scene.fog = new THREE.Fog(0x0d1a0d, 40, 100);
 
-  const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 100);
+  const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 200);
   camera.position.set(4, 3.5, 5);
   camera.lookAt(0, 0, 0);
 
@@ -493,16 +495,22 @@ function showTab(id, btn) {
   const ambient = new THREE.AmbientLight(0xfff5e0, 0.7);
   scene.add(ambient);
   const sun = new THREE.DirectionalLight(0xfff0c0, 1.4);
-  sun.position.set(5, 10, 6);
+  sun.position.set(5, 30, 6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.near = 0.5;
+  sun.shadow.camera.far = 80;
+  sun.shadow.camera.left = -20;
+  sun.shadow.camera.right = 20;
+  sun.shadow.camera.top = 30;
+  sun.shadow.camera.bottom = -5;
   scene.add(sun);
   const fill = new THREE.DirectionalLight(0xb0d8ff, 0.3);
   fill.position.set(-4, 3, -3);
   scene.add(fill);
 
   // Ground plane
-  const groundGeo = new THREE.PlaneGeometry(20, 20);
+  const groundGeo = new THREE.PlaneGeometry(30, 30);
   const groundMat = new THREE.MeshLambertMaterial({ color: 0x2a4a1a });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -622,111 +630,526 @@ function showTab(id, btn) {
     bz += boardW + boardGap;
   }
 
-  // HANDRAIL POSTS & RAILS — outer perimeter
-  const railPostH = 1.1;
-  const railBaseY = DH + boardThick;
+  // ── HANDRAIL SYSTEM ──
+  // Gaps:
+  //   STEPS GAP: on inner notch VERTICAL edge (x=1.7), between z=0.3 and z=0.7
+  //              → west-facing opening; steps come east from the platform
+  //   SLIDE GAP: on bottom edge (z=2.7), between x=1.85 and x=2.3 (SE corner area)
+  //              → slide exits south
+  const STEP_GAP_Z0 = 0.30, STEP_GAP_Z1 = 0.70;   // deck coords, on x=1.7 wall
+  const SLIDE_GAP_X0 = 1.85, SLIDE_GAP_X1 = 2.3;  // deck coords, on z=2.7 wall (SE corner)
+
+  const railPostH  = 1.1;
+  const railBaseY  = DH + boardThick;
   const railPostMat = railMat;
+
   function railPost(px, pz) {
     box(0.06, railPostH, 0.06, railPostMat, px - cx, railBaseY + railPostH/2, pz - cz, groups.rails);
   }
-  function topRail(x1, z1, x2, z2) {
-    const len = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
-    const mx = (x1+x2)/2, mz = (z1+z2)/2;
-    const angle = Math.atan2(z2-z1, x2-x1);
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.045, 0.095), railPostMat);
-    rail.position.set(mx - cx, railBaseY + railPostH, mz - cz);
-    rail.rotation.y = -angle;
-    rail.castShadow = true;
-    groups.rails.add(rail);
-  }
-  // Rail along top (P1→P2)
-  for (let rx = 1.7; rx <= 2.3; rx += 0.35) railPost(rx, 0.0);
-  topRail(1.7, 0, 2.3, 0);
-  // Right side (P2→P3)
-  for (let rz = 0.0; rz <= 2.7; rz += 0.35) railPost(2.3, rz);
-  topRail(2.3, 0, 2.3, 2.7);
-  // Bottom (P3→P4)
-  for (let rx = 0; rx <= 2.3; rx += 0.35) railPost(rx, 2.7);
-  topRail(0, 2.7, 2.3, 2.7);
-  // Left (P4→P5)
-  for (let rz = 2.1; rz <= 2.7; rz += 0.35) railPost(0, rz);
-  topRail(0, 2.1, 0, 2.7);
-  // Inner notch horizontal (P5→P6)
-  for (let rx = 0.0; rx <= 1.7; rx += 0.35) railPost(rx, 2.1);
-  topRail(0, 2.1, 1.7, 2.1);
-  // Inner notch vertical (P6→P1)
-  for (let rz = 0.0; rz <= 2.1; rz += 0.35) railPost(1.7, rz);
-  topRail(1.7, 0, 1.7, 2.1);
 
-  // Spindles (just as thin vertical boxes along each rail side, sampled)
-  function addSpindles(x1, z1, x2, z2, spacing) {
-    const len = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
+  // topRail with optional midpoint gap: gapA/gapB are deck-x or deck-z values to skip (null = no gap)
+  function topRailSegmented(x1, z1, x2, z2, gapA, gapB) {
+    // Work out if gap is along x or z axis
+    const horizontal = (Math.abs(z2-z1) < 0.001); // constant-z edge
+    function seg(ax1, az1, ax2, az2) {
+      const len = Math.sqrt((ax2-ax1)**2+(az2-az1)**2);
+      if (len < 0.01) return;
+      const mx=(ax1+ax2)/2, mz=(az1+az2)/2;
+      const angle = Math.atan2(az2-az1, ax2-ax1);
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(len,0.045,0.095), railPostMat);
+      rail.position.set(mx-cx, railBaseY+railPostH, mz-cz);
+      rail.rotation.y = -angle;
+      rail.castShadow = true;
+      groups.rails.add(rail);
+    }
+    if (gapA == null) { seg(x1,z1,x2,z2); return; }
+    if (horizontal) {
+      seg(x1,z1, gapA,z1);
+      seg(gapB,z1, x2,z2);
+    } else {
+      seg(x1,z1, x1,gapA);
+      seg(x1,gapB, x2,z2);
+    }
+  }
+
+  // posts with gap avoidance — skip posts within gap zone
+  function railPostsAlongX(z, xFrom, xTo, spacing, gapA, gapB) {
+    for (let rx = xFrom; rx <= xTo + 0.01; rx += spacing) {
+      if (gapA != null && rx > gapA - 0.1 && rx < gapB + 0.1) continue;
+      railPost(Math.min(rx, xTo), z);
+    }
+  }
+  function railPostsAlongZ(x, zFrom, zTo, spacing, gapA, gapB) {
+    for (let rz = zFrom; rz <= zTo + 0.01; rz += spacing) {
+      if (gapA != null && rz > gapA - 0.1 && rz < gapB + 0.1) continue;
+      railPost(x, Math.min(rz, zTo));
+    }
+  }
+
+  function addSpindlesGapped(x1, z1, x2, z2, spacing, gapA, gapB) {
+    const horizontal = Math.abs(z2-z1) < 0.001;
+    const len = Math.sqrt((x2-x1)**2+(z2-z1)**2);
     const steps = Math.floor(len / spacing);
     for (let i = 1; i < steps; i++) {
       const t = i / steps;
-      const sx = x1 + (x2-x1)*t;
-      const sz = z1 + (z2-z1)*t;
+      const sx = x1+(x2-x1)*t, sz = z1+(z2-z1)*t;
+      const v = horizontal ? sx : sz;
+      if (gapA != null && v > gapA && v < gapB) continue;
       box(0.032, 0.9, 0.032, railPostMat, sx-cx, railBaseY+0.45, sz-cz, groups.rails);
     }
   }
-  addSpindles(1.7,0, 2.3,0, 0.1);
-  addSpindles(2.3,0, 2.3,2.7, 0.1);
-  addSpindles(0,2.7, 2.3,2.7, 0.1);
-  addSpindles(0,2.1, 0,2.7, 0.1);
-  addSpindles(0,2.1, 1.7,2.1, 0.1);
-  addSpindles(1.7,0, 1.7,2.1, 0.1);
+
+  // Rail along top P1→P2 (z=0, no gap)
+  railPostsAlongX(0.0, 1.7, 2.3, 0.35, null, null);
+  topRailSegmented(1.7,0, 2.3,0, null, null);
+  addSpindlesGapped(1.7,0, 2.3,0, 0.1, null, null);
+
+  // Right side P2→P3 (x=2.3, no gap — slide gap is at z=2.7 end, not this wall)
+  railPostsAlongZ(2.3, 0.0, 2.7, 0.35, null, null);
+  topRailSegmented(2.3,0, 2.3,2.7, null, null);
+  addSpindlesGapped(2.3,0, 2.3,2.7, 0.1, null, null);
+
+  // Bottom P3→P4 (z=2.7) — SLIDE GAP near SE corner (x=1.85→2.3)
+  railPostsAlongX(2.7, 0.0, 2.3, 0.35, SLIDE_GAP_X0, SLIDE_GAP_X1);
+  topRailSegmented(0,2.7, 2.3,2.7, SLIDE_GAP_X0, SLIDE_GAP_X1);
+  addSpindlesGapped(0,2.7, 2.3,2.7, 0.1, SLIDE_GAP_X0, SLIDE_GAP_X1);
+  // Gate posts either side of slide gap
+  railPost(SLIDE_GAP_X0, 2.7);
+  railPost(2.25, 2.7); // right post just inside SE corner
+
+  // Left P4→P5 (x=0, no gap)
+  railPostsAlongZ(0.0, 2.1, 2.7, 0.35, null, null);
+  topRailSegmented(0,2.1, 0,2.7, null, null);
+  addSpindlesGapped(0,2.1, 0,2.7, 0.1, null, null);
+
+  // Inner notch horizontal P5→P6 (z=2.1) — full rail, no gap
+  railPostsAlongX(2.1, 0.0, 1.7, 0.35, null, null);
+  topRailSegmented(0,2.1, 1.7,2.1, null, null);
+  addSpindlesGapped(0,2.1, 1.7,2.1, 0.1, null, null);
+
+  // Inner notch vertical P6→P1 (x=1.7) — STEPS GAP (z=0.3→0.7), west-facing
+  railPostsAlongZ(1.7, 0.0, 2.1, 0.35, STEP_GAP_Z0, STEP_GAP_Z1);
+  topRailSegmented(1.7,0, 1.7,2.1, STEP_GAP_Z0, STEP_GAP_Z1);
+  addSpindlesGapped(1.7,0, 1.7,2.1, 0.1, STEP_GAP_Z0, STEP_GAP_Z1);
+  // Gate posts either side of steps gap
+  railPost(1.7, STEP_GAP_Z0);
+  railPost(1.7, STEP_GAP_Z1);
+
+  // ── EXISTING PLATFORM (along NORTH wall, west of the deck's right arm) ──
+  // Square notch region: x=[0,1.7], z=[0,2.1]. Tree at centre (~0.85, 1.05).
+  // Platform hugs the north wall: x=[0.1,1.1], z=[0.1,0.9], height 0.8m.
+  // East edge OPEN — steps run east from there into the deck's west-facing rail gap.
+  const LD_H  = 0.8;
+  const LD_X0 = 0.1,  LD_X1 = 1.1;   // east edge at 1.1
+  const LD_Z0 = 0.1,  LD_Z1 = 0.9;
+  const LD_CX = (LD_X0+LD_X1)/2, LD_CZ = (LD_Z0+LD_Z1)/2;
+  const LD_W  = LD_X1-LD_X0, LD_D = LD_Z1-LD_Z0;
+
+  const lowerDeckGroup = new THREE.Group();
+  scene.add(lowerDeckGroup);
+  groups.lowerDeck = lowerDeckGroup;
+
+  const lowerDeckMat  = new THREE.MeshLambertMaterial({ color: 0xB8902A });
+  const lowerBeamMat  = new THREE.MeshLambertMaterial({ color: 0x8A6010 });
+  const lowerRailMat  = new THREE.MeshLambertMaterial({ color: 0x5A3818 });
+
+  function lbox(w, h, d, mat, x, y, z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true; m.receiveShadow = true;
+    lowerDeckGroup.add(m);
+    return m;
+  }
+
+  // Platform posts (4 corners)
+  const ldPostH = LD_H + 0.15;
+  [[LD_X0,LD_Z0],[LD_X1,LD_Z0],[LD_X1,LD_Z1],[LD_X0,LD_Z1]].forEach(([px,pz]) => {
+    lbox(0.1, ldPostH, 0.1, lowerBeamMat, px-cx, ldPostH/2, pz-cz);
+    const sk = new THREE.Mesh(new THREE.ConeGeometry(0.04,0.4,6), spikeMat);
+    sk.position.set(px-cx, -0.2, pz-cz);
+    lowerDeckGroup.add(sk);
+  });
+
+  // Rim beams
+  lbox(LD_W, 0.15, 0.095, lowerBeamMat, LD_CX-cx, LD_H-0.075, LD_Z0-cz);
+  lbox(LD_W, 0.15, 0.095, lowerBeamMat, LD_CX-cx, LD_H-0.075, LD_Z1-cz);
+  lbox(0.095, 0.15, LD_D, lowerBeamMat, LD_X0-cx, LD_H-0.075, LD_CZ-cz);
+  lbox(0.095, 0.15, LD_D, lowerBeamMat, LD_X1-cx, LD_H-0.075, LD_CZ-cz);
+
+  // Joists
+  for (let jz = LD_Z0+0.3; jz < LD_Z1; jz += 0.4)
+    lbox(LD_W, 0.1, 0.047, lowerBeamMat, LD_CX-cx, LD_H-0.17, jz-cz);
+
+  // Decking boards (N→S strips)
+  const ldBY = LD_H + boardThick/2;
+  let ldBx = LD_X0;
+  while (ldBx + boardW <= LD_X1 + 0.01) {
+    lbox(boardW, boardThick, LD_D, lowerDeckMat, ldBx+boardW/2-cx, ldBY, LD_CZ-cz);
+    ldBx += boardW + boardGap;
+  }
+
+  // Platform handrails: NONE — the existing platform has no railings.
+
+  // ── STEPS: run EAST from platform east edge (x=1.1) to the deck's west rail gap (x=1.7) ──
+  // Rise 0.8→1.4 = 0.6m over 3 treads (200mm rise), run 0.6m total (200mm going)
+  const stepZ0 = STEP_GAP_Z0, stepZ1 = STEP_GAP_Z1;  // z=0.3→0.7 — aligns with platform
+  const stepW  = stepZ1 - stepZ0;  // 0.4m wide treads
+  const nSteps = 3;
+  const stepRise = (DH - LD_H) / nSteps;     // 0.2m
+  const stepRun  = (1.7 - LD_X1) / nSteps;   // 0.2m
+  const stepMat  = new THREE.MeshLambertMaterial({ color: 0xC49A2A });
+  const stepStrMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  for (let s = 0; s < nSteps; s++) {
+    const stepY = LD_H + stepRise * (s + 1);
+    const stepX = LD_X1 + stepRun * s;
+    // Tread
+    const tread = new THREE.Mesh(new THREE.BoxGeometry(stepRun, 0.04, stepW), stepMat);
+    tread.position.set(stepX + stepRun/2 - cx, stepY, (stepZ0+stepZ1)/2 - cz);
+    tread.castShadow = true;
+    groups.rails.add(tread);
+    // Riser
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(0.03, stepRise, stepW), stepStrMat);
+    riser.position.set(stepX - cx, stepY - stepRise/2, (stepZ0+stepZ1)/2 - cz);
+    riser.castShadow = true;
+    groups.rails.add(riser);
+  }
+  // Stringers along the sides of the steps (running east, sloping up)
+  const stringerLen = Math.sqrt((nSteps*stepRun)**2 + (DH-LD_H)**2) + 0.1;
+  const stringerAngle = Math.atan2(DH-LD_H, nSteps*stepRun);
+  [stepZ0-0.02, stepZ1+0.02].forEach(sz => {
+    const str = new THREE.Mesh(new THREE.BoxGeometry(stringerLen, 0.15, 0.05), stepStrMat);
+    str.position.set(LD_X1 + (nSteps*stepRun)/2 - cx, (LD_H+DH)/2, sz - cz);
+    str.rotation.z = stringerAngle;
+    str.castShadow = true;
+    groups.rails.add(str);
+  });
+  // Step handrail on both sides (simple sloped rail)
+  [stepZ0-0.02, stepZ1+0.02].forEach(sz => {
+    const hr = new THREE.Mesh(new THREE.BoxGeometry(stringerLen, 0.04, 0.06), lowerRailMat);
+    hr.position.set(LD_X1 + (nSteps*stepRun)/2 - cx, (LD_H+DH)/2 + 0.95, sz - cz);
+    hr.rotation.z = stringerAngle;
+    hr.castShadow = true;
+    groups.rails.add(hr);
+    // Two uprights per side
+    [0.25, 0.75].forEach(t => {
+      const ux = LD_X1 + t * nSteps * stepRun;
+      const uy = LD_H + t * (DH - LD_H);
+      const up = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.95, 0.05), lowerRailMat);
+      up.position.set(ux - cx, uy + 0.5, sz - cz);
+      up.castShadow = true;
+      groups.rails.add(up);
+    });
+  });
+
+  // ── SLIDE from SE corner going south ──
+  // Slide starts at main deck SE area, x≈2.05 (middle of gap 1.85→2.3), z=2.7 (south edge)
+  // Slides south at an angle, landing ~3m south and ~1.4m drop
+  const SLIDE_MX = (SLIDE_GAP_X0 + 2.3) / 2; // centre of slide gap = ~2.075
+  const slideMat   = new THREE.MeshLambertMaterial({ color: 0x4a90d9, transparent: true, opacity: 0.85 });
+  const slideSideMat = new THREE.MeshLambertMaterial({ color: 0x2a5a99 });
+  const slideStartY = DH + boardThick;  // top of deck surface = 1.432
+  const slideEndZ   = 2.7 + 3.0;        // 3m south of south edge (deck coords)
+  const slideEndY   = 0.15;             // lands just above ground
+  const slideLen    = Math.sqrt((slideEndZ - 2.7)**2 + (slideStartY - slideEndY)**2);
+  const slideAngle  = Math.atan2(slideStartY - slideEndY, slideEndZ - 2.7);
+  const slideW      = 0.55;  // slide width
+  const slideThick  = 0.04;
+
+  // Slide surface
+  const slideSurf = new THREE.Mesh(
+    new THREE.BoxGeometry(slideW, slideThick, slideLen),
+    slideMat
+  );
+  slideSurf.position.set(
+    SLIDE_MX - cx,
+    (slideStartY + slideEndY) / 2,
+    (2.7 + slideEndZ) / 2 - cz
+  );
+  slideSurf.rotation.x = slideAngle;
+  slideSurf.castShadow = true;
+  groups.rails.add(slideSurf);
+
+  // Slide side walls
+  [-slideW/2 - 0.03, slideW/2 + 0.03].forEach(ox => {
+    const sw = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.18, slideLen), slideSideMat);
+    sw.position.set(SLIDE_MX + ox - cx, (slideStartY+slideEndY)/2 + 0.07, (2.7+slideEndZ)/2 - cz);
+    sw.rotation.x = slideAngle;
+    sw.castShadow = true;
+    groups.rails.add(sw);
+  });
+
+  // Slide support legs (2 posts underneath)
+  [0.33, 0.66].forEach(t => {
+    const legZ = 2.7 + t * 3.0;
+    const legY = slideEndY + t * (slideStartY - slideEndY);
+    const legH = legY;
+    if (legH > 0.1) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, legH, 0.08), stepStrMat);
+      leg.position.set(SLIDE_MX - cx, legH/2, legZ - cz);
+      leg.castShadow = true;
+      groups.rails.add(leg);
+    }
+  });
+
+  // ── OAK TREE ──
+  // The crook of the L is at world (1.7-cx, 0, 2.1-cz) = (0.55, 0, 0.75)
+  // 25m real = 25 units in our scale (deck is ~2.7 units = 2700mm, so 1 unit = 1m)
+  const treeGroup = new THREE.Group();
+  scene.add(treeGroup);
+  groups.tree = treeGroup;
+
+  const barkCol  = new THREE.MeshLambertMaterial({ color: 0x4a3020 });
+  const bark2Col = new THREE.MeshLambertMaterial({ color: 0x5a3a22 });
+  // Layered canopy colours — dark rich summer oak
+  const leafCols = [
+    new THREE.MeshLambertMaterial({ color: 0x2d5a1b, transparent: true, opacity: 0.92 }),
+    new THREE.MeshLambertMaterial({ color: 0x3a6b22, transparent: true, opacity: 0.88 }),
+    new THREE.MeshLambertMaterial({ color: 0x4a7a2a, transparent: true, opacity: 0.85 }),
+    new THREE.MeshLambertMaterial({ color: 0x254d16, transparent: true, opacity: 0.90 }),
+    new THREE.MeshLambertMaterial({ color: 0x5a8c30, transparent: true, opacity: 0.80 }),
+  ];
+
+  const TX = -0.30, TZ = -0.05; // tree base world — centre of notch, south of platform (deck coords ~0.85, 1.3)
+
+  // ── TRUNK ──
+  // Main trunk — tapered cylinder built from stacked frustums
+  function addTrunkSection(yBase, yTop, rBase, rTop, ox, oz, mat) {
+    const geo = new THREE.CylinderGeometry(rTop, rBase, yTop - yBase, 10, 1);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(TX + ox, yBase + (yTop - yBase) / 2, TZ + oz);
+    m.castShadow = true;
+    treeGroup.add(m);
+    return m;
+  }
+
+  // Ground-level roots / buttressing — low flat boxes
+  const rootDirs = [[1,0],[0.7,0.7],[0,1],[-0.7,0.7],[-1,0],[0.7,-0.7],[0,-1]];
+  rootDirs.forEach(([rx, rz], i) => {
+    const len = 0.35 + Math.random() * 0.2;
+    const rootGeo = new THREE.BoxGeometry(0.12, 0.1, len);
+    const root = new THREE.Mesh(rootGeo, barkCol);
+    root.position.set(TX + rx * (0.35 + len * 0.5), 0.05, TZ + rz * (0.35 + len * 0.5));
+    root.rotation.y = Math.atan2(rx, rz);
+    root.castShadow = true;
+    treeGroup.add(root);
+  });
+
+  // Main trunk (0 → 8m), girth ~0.45m radius at base tapering to 0.24 at 8m
+  addTrunkSection(0,  2.5, 0.45, 0.40, 0,     0,     barkCol);
+  addTrunkSection(2.5,5.0, 0.40, 0.32, 0.03, -0.02,  barkCol);
+  addTrunkSection(5.0,8.0, 0.32, 0.24, -0.04, 0.03,  bark2Col);
+
+  // ── MAJOR BRANCHES (from ~6–10m up) ──
+  // Each branch: a series of tapered cylinders leaning outward
+  function addBranch(yStart, xDir, zDir, lean, length, rStart, rEnd, mat) {
+    const segs = 4;
+    let cx0 = TX, cy0 = yStart, cz0 = TZ;
+    let r0 = rStart;
+    const segLen = length / segs;
+    const dxTotal = xDir * lean * length;
+    const dzTotal = zDir * lean * length;
+    const dyTotal = (1 - lean * 0.5) * length;
+    for (let s = 0; s < segs; s++) {
+      const t0 = s / segs, t1 = (s + 1) / segs;
+      const x0 = TX + dxTotal * t0, y0 = yStart + dyTotal * t0, z0 = TZ + dzTotal * t0;
+      const x1 = TX + dxTotal * t1, y1 = yStart + dyTotal * t1, z1 = TZ + dzTotal * t1;
+      const r1 = rStart + (rEnd - rStart) * t1;
+      const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+      const segActualLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      const geo = new THREE.CylinderGeometry(r1 * 0.85, r0, segActualLen, 7, 1);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      // Orient along direction
+      const dir = new THREE.Vector3(dx, dy, dz).normalize();
+      const up  = new THREE.Vector3(0, 1, 0);
+      const quat = new THREE.Quaternion().setFromUnitVectors(up, dir);
+      mesh.quaternion.copy(quat);
+      mesh.castShadow = true;
+      treeGroup.add(mesh);
+      r0 = r1 * 0.85;
+      cx0 = x1; cy0 = y1; cz0 = z1;
+    }
+    // Return tip position
+    return [TX + dxTotal, yStart + dyTotal, TZ + dzTotal];
+  }
+
+  // 6 main branches fanning out in different directions
+  const branchDefs = [
+    { y:7.5,  xd: 1.0, zd: 0.2, lean:0.55, len:7.0, r0:0.16, r1:0.05 },
+    { y:8.5,  xd:-0.8, zd: 0.6, lean:0.60, len:6.5, r0:0.15, r1:0.05 },
+    { y:9.0,  xd: 0.3, zd:-1.0, lean:0.58, len:7.5, r0:0.15, r1:0.04 },
+    { y:10.0, xd:-0.5, zd:-0.8, lean:0.50, len:6.0, r0:0.13, r1:0.04 },
+    { y:11.0, xd: 0.8, zd: 0.8, lean:0.45, len:5.5, r0:0.12, r1:0.04 },
+    { y:12.5, xd:-0.2, zd: 1.0, lean:0.52, len:5.0, r0:0.11, r1:0.03 },
+  ];
+  const branchTips = branchDefs.map(b =>
+    addBranch(b.y, b.xd, b.zd, b.lean, b.len, b.r0, b.r1, bark2Col)
+  );
+
+  // Sub-branches from tips
+  branchTips.forEach(([bx, by, bz]) => {
+    for (let sub = 0; sub < 3; sub++) {
+      const ang = (sub / 3) * Math.PI * 2 + Math.random() * 0.5;
+      const subXd = Math.sin(ang), subZd = Math.cos(ang);
+      const subLen = 2.5 + Math.random() * 1.5;
+      const segs = 2;
+      let sx0 = bx, sy0 = by, sz0 = bz;
+      const dxS = subXd * 0.5 * subLen, dyS = 0.8 * subLen, dzS = subZd * 0.5 * subLen;
+      for (let ss = 0; ss < segs; ss++) {
+        const t0 = ss/segs, t1 = (ss+1)/segs;
+        const sx1 = bx + dxS*t1, sy1 = by + dyS*t1, sz1 = bz + dzS*t1;
+        const dx = sx1-sx0, dy = sy1-sy0, dz = sz1-sz0;
+        const slen = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        const r0s = 0.05 - ss*0.015, r1s = 0.035 - ss*0.012;
+        const sGeo = new THREE.CylinderGeometry(Math.max(0.01,r1s), Math.max(0.015,r0s), slen, 5,1);
+        const sMesh = new THREE.Mesh(sGeo, bark2Col);
+        sMesh.position.set((sx0+sx1)/2,(sy0+sy1)/2,(sz0+sz1)/2);
+        const dir = new THREE.Vector3(dx,dy,dz).normalize();
+        sMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+        sMesh.castShadow = true;
+        treeGroup.add(sMesh);
+        sx0=sx1; sy0=sy1; sz0=sz1;
+      }
+    }
+  });
+
+  // Upper trunk continuation (8→25m, narrowing)
+  addTrunkSection(8.0,  11.0, 0.24, 0.19, -0.03, 0.02, bark2Col);
+  addTrunkSection(11.0, 14.0, 0.19, 0.15,  0.03,-0.02, bark2Col);
+  addTrunkSection(14.0, 18.0, 0.15, 0.10, -0.02, 0.01, bark2Col);
+  addTrunkSection(18.0, 22.0, 0.10, 0.06,  0.01,-0.01, bark2Col);
+  addTrunkSection(22.0, 25.0, 0.06, 0.03,  0.00, 0.00, bark2Col);
+
+  // ── CANOPY CLUSTERS ──
+  // Distribute ~60 leaf spheroids across the crown volume (7–25m height, spread ~10m radius)
+  const seed = (n) => { let x = Math.sin(n * 9301 + 49297) * 233280; return x - Math.floor(x); };
+  let si = 0;
+  function sr() { return seed(si++); }
+
+  // Main canopy body — dense cloud of ellipsoids at various heights
+  const canopyDefs = [
+    // [cx_offset, cy, cz_offset, rx, ry, rz]   (offsets from tree base)
+    // Lower spreading canopy (10–16m)
+    [ 3.5,  12, 1.5,  3.5, 2.0, 3.0],
+    [-3.0,  13, 2.5,  3.2, 2.2, 2.8],
+    [ 1.0,  11,-4.0,  3.0, 1.8, 3.5],
+    [-2.5,  12,-3.5,  2.8, 2.0, 2.8],
+    [ 4.0,  14, 4.0,  2.5, 2.5, 2.5],
+    [-1.5,  11, 4.5,  3.0, 1.8, 2.5],
+    [ 2.5,  13,-1.5,  2.0, 2.0, 2.0],
+    // Mid canopy (15–20m)
+    [ 2.0,  17, 1.0,  4.0, 2.5, 3.5],
+    [-2.5,  18, 0.5,  3.5, 2.5, 3.0],
+    [ 0.5,  16,-2.5,  3.5, 2.2, 3.0],
+    [-1.5,  16, 3.0,  3.0, 2.0, 2.8],
+    [ 3.5,  18,-2.0,  2.5, 2.0, 2.5],
+    [ 0.0,  17, 0.0,  4.5, 2.8, 4.0],
+    [-3.5,  19,-2.0,  2.8, 2.2, 2.5],
+    // Upper crown (19–25m)
+    [ 1.5,  21, 1.0,  3.5, 3.0, 3.2],
+    [-1.0,  22,-1.0,  3.0, 2.8, 3.0],
+    [ 0.5,  23, 0.5,  2.5, 2.5, 2.5],
+    [ 2.5,  22, 2.0,  2.0, 2.0, 2.0],
+    [-2.0,  21, 2.5,  2.2, 2.0, 2.2],
+    [ 0.0,  24, 0.0,  2.0, 2.2, 2.0],
+    // Outer feathery wisps
+    [ 5.5,  14, 0.0,  2.0, 1.5, 2.0],
+    [-5.0,  15, 1.0,  1.8, 1.5, 1.8],
+    [ 1.0,  10,-5.5,  2.0, 1.5, 2.2],
+    [-1.0,  11, 5.5,  1.8, 1.4, 2.0],
+    [ 5.0,  16,-2.5,  1.6, 1.5, 1.6],
+    [-4.5,  13,-4.0,  1.8, 1.5, 1.8],
+  ];
+
+  canopyDefs.forEach(([ox, oy, oz, rx, ry, rz], i) => {
+    const mat = leafCols[i % leafCols.length];
+    // Each "cluster" is 3–5 overlapping spheres for a fluffy look
+    const clusterCount = 3 + (i % 3);
+    for (let c = 0; c < clusterCount; c++) {
+      const jx = (sr() - 0.5) * rx * 0.8;
+      const jy = (sr() - 0.5) * ry * 0.8;
+      const jz = (sr() - 0.5) * rz * 0.8;
+      const jrx = rx * (0.55 + sr() * 0.45);
+      const jry = ry * (0.55 + sr() * 0.45);
+      const jrz = rz * (0.55 + sr() * 0.45);
+      const geo = new THREE.SphereGeometry(1, 7, 5);
+      const mesh = new THREE.Mesh(geo, leafCols[(i + c) % leafCols.length]);
+      mesh.scale.set(jrx, jry, jrz);
+      mesh.position.set(TX + ox + jx, oy + jy, TZ + oz + jz);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      treeGroup.add(mesh);
+    }
+  });
 
   // ── VIEW MODES ──
   let currentView = 'full';
   function setViewVisibility(v) {
-    groups.deck.visible   = (v !== 'frame' && v !== 'posts');
-    groups.rails.visible  = (v === 'full');
-    groups.frame.visible  = (v !== 'posts');
-    groups.posts.visible  = true;
+    groups.deck.visible       = (v !== 'frame' && v !== 'posts');
+    groups.rails.visible      = (v === 'full' || v === 'tree' || v === 'decks');
+    groups.frame.visible      = (v !== 'posts');
+    groups.posts.visible      = true;
+    groups.tree.visible       = (v !== 'frame' && v !== 'posts');
+    groups.lowerDeck.visible  = (v !== 'frame' && v !== 'posts');
   }
 
-  // Camera animation
-  let targetPos = new THREE.Vector3(4, 3.5, 5);
-  let targetLook = new THREE.Vector3(0, 0.7, 0);
-  let animating = false;
+  const viewConfigs = {
+    full:  { theta: 0.78, phi: 1.15, radius: 12,  lookY: 2.5 },
+    frame: { theta: 0.78, phi: 1.15, radius: 12,  lookY: 2.5 },
+    posts: { theta: 0.78, phi: 1.30, radius:  9,  lookY: 0.7 },
+    top:   { theta: 0.78, phi: 0.05, radius: 22,  lookY: 8.0 },
+    tree:  { theta: -0.6, phi: 0.85, radius: 30,  lookY: 12  },
+    decks: { theta:  1.2, phi: 1.05, radius: 10,  lookY: 1.5 },
+  };
+
+  function animateTo(cfg) {
+    const startTheta = spherical.theta, startPhi = spherical.phi, startR = spherical.radius;
+    const startLY = parseFloat(camera.userData.lookY || 2.5);
+    const endTheta = cfg.theta, endPhi = cfg.phi, endR = cfg.radius, endLY = cfg.lookY;
+    let t = 0;
+    function step() {
+      t = Math.min(1, t + 0.04);
+      const e = 1 - Math.pow(1 - t, 3); // ease out cubic
+      spherical.theta  = startTheta + (endTheta - startTheta) * e;
+      spherical.phi    = startPhi   + (endPhi   - startPhi)   * e;
+      spherical.radius = startR     + (endR     - startR)     * e;
+      const ly = startLY + (endLY - startLY) * e;
+      camera.userData.lookY = ly;
+      camera.position.x = spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+      camera.position.y = spherical.radius * Math.cos(spherical.phi);
+      camera.position.z = spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+      camera.lookAt(0, ly, 0);
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
 
   window.setView = function(v) {
     currentView = v;
     setViewVisibility(v);
     document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('btn-' + v).classList.add('active');
-    if (v === 'top') {
-      targetPos.set(0, 8, 0.001);
-      targetLook.set(0, 0, 0);
-    } else if (v === 'posts') {
-      targetPos.set(2.5, 1.5, 4);
-      targetLook.set(0, 0.7, 0);
-    } else {
-      targetPos.set(4, 3.5, 5);
-      targetLook.set(0, 0.7, 0);
-    }
-    animating = true;
+    animateTo(viewConfigs[v]);
   };
 
   window.resetCamera = function() {
-    targetPos.set(4, 3.5, 5);
-    targetLook.set(0, 0.7, 0);
-    animating = true;
     document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('btn-full').classList.add('active');
     setViewVisibility('full');
+    animateTo(viewConfigs.full);
   };
 
   // ── ORBIT CONTROLS (manual, no import needed) ──
   let isDragging = false;
   let prevX = 0, prevY = 0;
-  let spherical = { theta: 0.78, phi: 0.95, radius: 7.5 };
+  let spherical = { theta: 0.78, phi: 1.15, radius: 12 };
+  camera.userData.lookY = 2.5;
 
   function updateCameraFromSpherical() {
     camera.position.x = spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
     camera.position.y = spherical.radius * Math.cos(spherical.phi);
     camera.position.z = spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
-    camera.lookAt(0, 0.7, 0);
+    camera.lookAt(0, camera.userData.lookY || 2.5, 0);
   }
   updateCameraFromSpherical();
 
@@ -742,7 +1165,7 @@ function showTab(id, btn) {
   canvas.addEventListener('mouseup', () => isDragging = false);
   canvas.addEventListener('mouseleave', () => isDragging = false);
   canvas.addEventListener('wheel', e => {
-    spherical.radius = Math.max(2, Math.min(15, spherical.radius + e.deltaY * 0.01));
+    spherical.radius = Math.max(2, Math.min(40, spherical.radius + e.deltaY * 0.03));
     updateCameraFromSpherical();
     e.preventDefault();
   }, { passive: false });
@@ -772,7 +1195,7 @@ function showTab(id, btn) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.sqrt(dx*dx + dy*dy);
-      spherical.radius = Math.max(2, Math.min(15, spherical.radius * (lastTouchDist / dist)));
+      spherical.radius = Math.max(2, Math.min(40, spherical.radius * (lastTouchDist / dist)));
       lastTouchDist = dist;
       updateCameraFromSpherical();
     }
