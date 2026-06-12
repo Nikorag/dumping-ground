@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>L-Shaped Treehouse Deck</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root {
+  --oak: #8B6914;
+  --oak-light: #C49A2A;
+  --oak-pale: #F5EDD8;
+  --bark: #3D2B1A;
+  --moss: #4A6741;
+  --rule: #D4C4A0;
+  --warning: #C0392B;
+  --bg: #FDFAF4;
+  --ink: #1C1410;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--ink); font-family: Georgia, serif; font-size: 15px; line-height: 1.6; }
+
+/* ── HEADER ── */
+header {
+  background: var(--bark);
+  color: var(--oak-pale);
+  padding: 20px 16px 16px;
+  border-bottom: 3px solid var(--oak-light);
+}
+header h1 { font-size: clamp(1.3rem, 5vw, 2rem); font-weight: normal; line-height: 1.2; }
+header h1 span { color: var(--oak-light); }
+.header-meta {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: var(--rule);
+  margin-top: 8px;
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+}
+.header-meta span { white-space: nowrap; }
+
+/* ── WARNING ── */
+.warning-banner {
+  background: #FDF3F2; border: 2px solid var(--warning);
+  border-radius: var(--radius); padding: 12px 14px;
+  margin: 16px; font-size: 13px; color: #7B1F1A;
+}
+.warning-banner strong { display: block; font-size: 14px; margin-bottom: 4px; }
+
+/* ── 3D SECTION ── */
+.render-section {
+  margin: 0 16px 16px;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.render-header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--rule);
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.render-header h2 {
+  font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--oak); font-weight: normal;
+}
+.render-hint { font-size: 11px; color: #888; font-family: 'Courier New', monospace; }
+#three-canvas {
+  display: block; width: 100%;
+  height: min(60vw, 380px);
+  touch-action: none;
+  cursor: grab;
+  background: linear-gradient(160deg, #1a2a3a 0%, #0d1a0d 100%);
+}
+#three-canvas:active { cursor: grabbing; }
+
+.render-controls {
+  display: flex; gap: 8px; padding: 10px 14px; flex-wrap: wrap;
+  border-top: 1px solid var(--rule);
+}
+.ctrl-btn {
+  padding: 6px 14px; font-size: 12px; font-family: 'Courier New', monospace;
+  background: var(--oak-pale); border: 1px solid var(--rule); border-radius: 4px;
+  cursor: pointer; color: var(--bark); transition: background 0.15s;
+}
+.ctrl-btn.active, .ctrl-btn:active { background: var(--bark); color: var(--oak-pale); }
+
+/* ── STATS ── */
+.stats-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  margin: 0 16px 16px;
+}
+.stat-card {
+  background: #fff; border: 1px solid var(--rule); border-radius: var(--radius);
+  padding: 14px 10px; text-align: center;
+}
+.stat-card .value { font-size: 1.6rem; font-family: 'Courier New', monospace; color: var(--oak); font-weight: bold; line-height: 1; }
+.stat-card .unit { font-size: 0.7rem; color: #888; margin-top: 2px; }
+.stat-card .label { font-size: 0.65rem; color: var(--ink); margin-top: 5px; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ── DIAGRAMS ── */
+.diag-section {
+  margin: 0 16px 16px;
+  background: #fff; border: 1px solid var(--rule); border-radius: var(--radius);
+  overflow: hidden;
+}
+.section-head {
+  padding: 12px 14px; border-bottom: 1px solid var(--rule);
+  font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--oak);
+}
+.diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.diag-cell { padding: 14px; border-right: 1px solid var(--rule); }
+.diag-cell:last-child { border-right: none; }
+.diag-label { font-size: 10px; font-family: 'Courier New', monospace; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+@media (max-width: 600px) {
+  .diag-grid { grid-template-columns: 1fr; }
+  .diag-cell { border-right: none; border-bottom: 1px solid var(--rule); }
+  .diag-cell:last-child { border-bottom: none; }
+}
+svg text { font-family: 'Courier New', monospace; }
+
+/* ── TABS ── */
+.tabs-sticky {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--bark);
+  display: flex; overflow-x: auto; gap: 0;
+  border-bottom: 2px solid var(--oak-light);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tabs-sticky::-webkit-scrollbar { display: none; }
+.tab-btn {
+  padding: 12px 18px; min-width: max-content;
+  font-size: 11px; font-family: 'Courier New', monospace;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  background: none; border: none; color: #a08060; cursor: pointer;
+  border-bottom: 3px solid transparent; transition: all 0.15s;
+  white-space: nowrap;
+}
+.tab-btn.active { color: var(--oak-light); border-bottom-color: var(--oak-light); }
+
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ── PARTS TABLE ── */
+.table-wrap { margin: 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); border: 1px solid var(--rule); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 540px; }
+th { background: var(--bark); color: var(--oak-pale); text-align: left; padding: 9px 12px; font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: normal; }
+td { padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:nth-child(even) td { background: #faf6ec; }
+tr:last-child td { border-bottom: none; }
+.qty { font-family: 'Courier New', monospace; font-weight: bold; color: var(--oak); text-align: center; }
+.dim { font-family: 'Courier New', monospace; font-size: 11px; color: #555; }
+
+/* ── POST SPEC ── */
+.post-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px; }
+@media (max-width: 600px) { .post-grid { grid-template-columns: 1fr; } }
+.post-card { background: #fff; border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; }
+.post-card h3 { font-size: 0.9rem; font-weight: normal; color: var(--bark); margin-bottom: 8px; }
+.post-card p { font-size: 13px; color: #444; margin-bottom: 12px; }
+.mono-box {
+  background: var(--oak-pale); border-left: 3px solid var(--oak);
+  border-radius: 4px; padding: 12px; font-size: 11px;
+  font-family: 'Courier New', monospace; line-height: 1.9; color: var(--bark);
+}
+.note-list { list-style: none; }
+.note-list li { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--rule); font-size: 13px; }
+.note-list li:last-child { border-bottom: none; }
+.note-list .bul { width: 20px; height: 20px; background: var(--moss); color: #fff; border-radius: 50%; font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.card-label { font-size: 10px; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 0.1em; color: var(--moss); margin-bottom: 4px; }
+
+/* ── ASSEMBLY ── */
+.steps { margin: 16px; }
+.step { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px dashed var(--rule); }
+.step:last-child { border-bottom: none; }
+.step-num { width: 34px; height: 34px; background: var(--bark); color: var(--oak-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'Courier New', monospace; font-size: 13px; font-weight: bold; flex-shrink: 0; }
+.step-body strong { display: block; margin-bottom: 3px; }
+.step-body p { font-size: 13px; color: #444; }
+
+/* ── FOOTER ── */
+footer { border-top: 2px solid var(--rule); padding: 16px; font-size: 11px; font-family: 'Courier New', monospace; color: #888; text-align: center; line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div style="font-family:'Courier New',monospace;font-size:10px;color:var(--rule);letter-spacing:0.15em;margin-bottom:4px;">PROJECT SPEC SHEET</div>
+  <h1>L-Shaped <span>Treehouse Deck</span></h1>
+  <div class="header-meta">
+    <span>Bottom: 2300 mm</span>
+    <span>Right: 2700 mm</span>
+    <span>Width: 600 mm</span>
+    <span>Height: 1400 mm</span>
+    <span>Posts: 6 × spike</span>
+  </div>
+</header>
+
+<!-- WARNING -->
+<div class="warning-banner">
+  <strong>⚠ Safety Notice</strong>
+  Design aid only. A deck at 1.4m used by children must be checked by a structural engineer or Building Control before use. Verify spike anchor load ratings with manufacturer data.
+</div>
+
+<!-- 3D RENDER -->
+<div class="render-section">
+  <div class="render-header">
+    <h2>3D Interactive Model</h2>
+    <span class="render-hint">Drag to rotate · Pinch to zoom</span>
+  </div>
+  <canvas id="three-canvas"></canvas>
+  <div class="render-controls">
+    <button class="ctrl-btn active" id="btn-full" onclick="setView('full')">Full Structure</button>
+    <button class="ctrl-btn" id="btn-frame" onclick="setView('frame')">Frame Only</button>
+    <button class="ctrl-btn" id="btn-posts" onclick="setView('posts')">Posts</button>
+    <button class="ctrl-btn" id="btn-top" onclick="setView('top')">Top-down</button>
+    <button class="ctrl-btn" id="btn-reset" onclick="resetCamera()">Reset View</button>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="value">2.34</div>
+    <div class="unit">m²</div>
+    <div class="label">Deck Area</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">6</div>
+    <div class="unit">posts</div>
+    <div class="label">Spike Posts</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">1400</div>
+    <div class="unit">mm</div>
+    <div class="label">Height</div>
+  </div>
+</div>
+
+<!-- DIAGRAMS -->
+<div class="diag-section">
+  <div class="section-head">Technical Diagrams</div>
+  <div class="diag-grid">
+    <div class="diag-cell">
+      <div class="diag-label">Plan View — Looking Down</div>
+      <svg viewBox="0 0 300 340" width="100%" style="background:#f9f6f0;border-radius:4px;">
+        <defs><pattern id="g" width="15" height="15" patternUnits="userSpaceOnUse"><path d="M15 0L0 0 0 15" fill="none" stroke="#e8e0d0" stroke-width="0.5"/></pattern></defs>
+        <rect width="300" height="340" fill="url(#g)"/>
+        <!-- L shape: scale ~0.083, offset x=30,y=30 -->
+        <!-- P1(1700,0)→(171,30) P2(2300,0)→(221,30) P3(2300,2700)→(221,254) P4(0,2700)→(30,254) P5(0,2100)→(30,204) P6(1700,2100)→(171,204) -->
+        <polygon points="171,30 221,30 221,254 30,254 30,204 171,204" fill="#C49A2A" fill-opacity="0.2" stroke="#8B6914" stroke-width="2"/>
+        <!-- Dimensions -->
+        <line x1="30" y1="270" x2="221" y2="270" stroke="#3D2B1A" stroke-width="1"/>
+        <line x1="30" y1="266" x2="30" y2="274" stroke="#3D2B1A" stroke-width="1"/>
+        <line x1="221" y1="266" x2="221" y2="274" stroke="#3D2B1A" stroke-width="1"/>
+        <text x="125" y="283" text-anchor="middle" font-size="9" fill="#3D2B1A">2300 mm</text>
+        <line x1="240" y1="30" x2="240" y2="254" stroke="#3D2B1A" stroke-width="1"/>
+        <line x1="236" y1="30" x2="244" y2="30" stroke="#3D2B1A" stroke-width="1"/>
+        <line x1="236" y1="254" x2="244" y2="254" stroke="#3D2B1A" stroke-width="1"/>
+        <text x="260" y="146" text-anchor="middle" font-size="9" fill="#3D2B1A" transform="rotate(90,260,146)">2700 mm</text>
+        <!-- 600mm callouts -->
+        <line x1="171" y1="20" x2="221" y2="20" stroke="#4A6741" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="171" y1="16" x2="171" y2="24" stroke="#4A6741" stroke-width="1"/>
+        <line x1="221" y1="16" x2="221" y2="24" stroke="#4A6741" stroke-width="1"/>
+        <text x="196" y="14" text-anchor="middle" font-size="8" fill="#4A6741">600</text>
+        <line x1="18" y1="204" x2="18" y2="254" stroke="#4A6741" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="14" y1="204" x2="22" y2="204" stroke="#4A6741" stroke-width="1"/>
+        <line x1="14" y1="254" x2="22" y2="254" stroke="#4A6741" stroke-width="1"/>
+        <text x="10" y="232" text-anchor="middle" font-size="8" fill="#4A6741" transform="rotate(-90,10,232)">600</text>
+        <!-- Inner dims -->
+        <line x1="30" y1="196" x2="171" y2="196" stroke="#bbb" stroke-width="0.8" stroke-dasharray="2,3"/>
+        <text x="100" y="192" text-anchor="middle" font-size="7" fill="#999">1700 mm</text>
+        <line x1="163" y1="30" x2="163" y2="204" stroke="#bbb" stroke-width="0.8" stroke-dasharray="2,3"/>
+        <text x="158" y="121" text-anchor="end" font-size="7" fill="#999" transform="rotate(-90,158,121)">2100 mm</text>
+        <!-- Posts -->
+        <circle cx="171" cy="30" r="6" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="174" y="24" font-size="8" fill="#3D2B1A">P1</text>
+        <circle cx="221" cy="30" r="6" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="225" y="24" font-size="8" fill="#3D2B1A">P2</text>
+        <circle cx="221" cy="254" r="6" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="225" y="264" font-size="8" fill="#3D2B1A">P3</text>
+        <circle cx="30" cy="254" r="6" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="13" y="264" font-size="8" fill="#3D2B1A">P4</text>
+        <circle cx="30" cy="204" r="6" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="13" y="200" font-size="8" fill="#3D2B1A">P5</text>
+        <circle cx="171" cy="204" r="6" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="174" y="200" font-size="8" fill="#3D2B1A">P6</text>
+        <!-- Joist lines -->
+        <line x1="171" y1="70" x2="221" y2="70" stroke="#8B6914" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.5"/>
+        <line x1="171" y1="110" x2="221" y2="110" stroke="#8B6914" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.5"/>
+        <line x1="171" y1="150" x2="221" y2="150" stroke="#8B6914" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.5"/>
+        <line x1="80" y1="204" x2="80" y2="254" stroke="#8B6914" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.5"/>
+        <line x1="130" y1="204" x2="130" y2="254" stroke="#8B6914" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.5"/>
+        <!-- Legend -->
+        <circle cx="35" cy="315" r="5" fill="#3D2B1A" stroke="#C49A2A" stroke-width="1.5"/>
+        <text x="45" y="319" font-size="8" fill="#3D2B1A">Post</text>
+        <line x1="80" y1="315" x2="100" y2="315" stroke="#8B6914" stroke-width="1.5" stroke-dasharray="3,2"/>
+        <text x="105" y="319" font-size="8" fill="#3D2B1A">Joists</text>
+        <rect x="155" y="310" width="10" height="8" fill="#C49A2A" fill-opacity="0.3" stroke="#8B6914" stroke-width="1"/>
+        <text x="170" y="319" font-size="8" fill="#3D2B1A">Deck</text>
+      </svg>
+    </div>
+    <div class="diag-cell">
+      <div class="diag-label">Elevation — Right Side</div>
+      <svg viewBox="0 0 300 340" width="100%" style="background:#f9f6f0;border-radius:4px;">
+        <defs><pattern id="g2" width="15" height="15" patternUnits="userSpaceOnUse"><path d="M15 0L0 0 0 15" fill="none" stroke="#e8e0d0" stroke-width="0.5"/></pattern></defs>
+        <rect width="300" height="340" fill="url(#g2)"/>
+        <!-- Ground -->
+        <line x1="20" y1="280" x2="280" y2="280" stroke="#6B4C2A" stroke-width="2"/>
+        <text x="150" y="295" text-anchor="middle" font-size="9" fill="#6B4C2A" letter-spacing="1">GROUND</text>
+        <!-- Ground hatch -->
+        <line x1="25" y1="285" x2="40" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="55" y1="285" x2="70" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="85" y1="285" x2="100" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="115" y1="285" x2="130" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="145" y1="285" x2="160" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="175" y1="285" x2="190" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="205" y1="285" x2="220" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <line x1="235" y1="285" x2="250" y2="300" stroke="#6B4C2A" stroke-width="0.7" opacity="0.5"/>
+        <!-- Scale: 1400mm → ~170px; deck at y=280-170=110 -->
+        <!-- Posts -->
+        <rect x="60" y="110" width="14" height="170" fill="#8B6914" rx="2"/>
+        <polygon points="67,280 60,300 74,300" fill="#555"/>
+        <text x="67" y="108" text-anchor="middle" font-size="8" fill="#555">P2</text>
+        <rect x="140" y="110" width="14" height="170" fill="#8B6914" rx="2"/>
+        <polygon points="147,280 140,300 154,300" fill="#555"/>
+        <text x="147" y="108" text-anchor="middle" font-size="8" fill="#555">P3</text>
+        <rect x="220" y="110" width="14" height="170" fill="#8B6914" rx="2"/>
+        <polygon points="227,280 220,300 234,300" fill="#555"/>
+        <text x="227" y="108" text-anchor="middle" font-size="8" fill="#555">P4</text>
+        <!-- Rim beam -->
+        <rect x="50" y="98" width="194" height="14" fill="#C49A2A" stroke="#8B6914" stroke-width="1" rx="1"/>
+        <!-- Decking -->
+        <rect x="50" y="88" width="194" height="10" fill="#D4A843" stroke="#8B6914" stroke-width="0.5" rx="1"/>
+        <!-- Handrail -->
+        <rect x="50" y="42" width="5" height="46" fill="#6B4C2A" rx="1"/>
+        <rect x="239" y="42" width="5" height="46" fill="#6B4C2A" rx="1"/>
+        <line x1="50" y1="46" x2="244" y2="46" stroke="#6B4C2A" stroke-width="4"/>
+        <text x="147" y="36" text-anchor="middle" font-size="8" fill="#6B4C2A">Min. 1100mm handrail</text>
+        <!-- Knee brace -->
+        <line x1="74" y1="200" x2="120" y2="112" stroke="#A07828" stroke-width="2" stroke-dasharray="4,2"/>
+        <text x="88" y="170" font-size="7" fill="#A07828" transform="rotate(-30,88,170)">knee brace</text>
+        <!-- Height dim -->
+        <line x1="30" y1="88" x2="30" y2="280" stroke="#3D2B1A" stroke-width="1"/>
+        <line x1="25" y1="88" x2="35" y2="88" stroke="#3D2B1A" stroke-width="1"/>
+        <line x1="25" y1="280" x2="35" y2="280" stroke="#3D2B1A" stroke-width="1"/>
+        <text x="18" y="190" text-anchor="middle" font-size="9" fill="#3D2B1A" transform="rotate(-90,18,190)">1400 mm</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs-sticky">
+  <button class="tab-btn active" onclick="showTab('parts',this)">Parts List</button>
+  <button class="tab-btn" onclick="showTab('posts',this)">Posts</button>
+  <button class="tab-btn" onclick="showTab('assembly',this)">Assembly</button>
+</div>
+
+<!-- PARTS LIST -->
+<div id="pane-parts" class="tab-pane active">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Item</th><th>Description</th><th>Size</th><th>Qty</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Posts</strong></td><td>C16 UC4b pressure-treated fence posts</td><td class="dim">100×100×2400mm</td><td class="qty">6</td><td>Cut to ~2000mm. 125×125 preferred for outer corners.</td></tr>
+        <tr><td><strong>Post Spikes</strong></td><td>Metpost / APA 750mm drive spike</td><td class="dim">100×100 bore</td><td class="qty">6</td><td>Confirm load rating ≥ 0.5 kN/m². Use 750mm+ in soft ground.</td></tr>
+        <tr><td><strong>Rim Beams</strong></td><td>C16 PT structural timber (sistered pair)</td><td class="dim">47×150, varies</td><td class="qty">6 lengths</td><td>2× 2700mm, 2× 2300mm, 2× 600mm. Double each for 95mm width.</td></tr>
+        <tr><td><strong>Inner Beams</strong></td><td>Mid-span support beams C16 PT</td><td class="dim">47×150×600mm</td><td class="qty">4</td><td>One per arm section to halve joist span to ~450mm max.</td></tr>
+        <tr><td><strong>Joists</strong></td><td>Floor joists C16 PT spanning 600mm</td><td class="dim">47×100×600mm</td><td class="qty">28</td><td>@400mm c/c. Right arm ~14, bottom arm ~10, +4 spare.</td></tr>
+        <tr><td><strong>Joist Hangers</strong></td><td>Galvanised joist hangers (external grade)</td><td class="dim">47×100mm type</td><td class="qty">56</td><td>2 per joist. Use hot-dip galv. for PT timber.</td></tr>
+        <tr><td><strong>Decking Boards</strong></td><td>Softwood grooved non-slip decking PT</td><td class="dim">125×32×3600mm</td><td class="qty">14</td><td>2.34m² + 15% waste. 5mm drainage gap between boards.</td></tr>
+        <tr><td><strong>Handrail Posts</strong></td><td>Baluster uprights PT</td><td class="dim">75×75×1250mm</td><td class="qty">16</td><td>Max 400mm centres around all open edges.</td></tr>
+        <tr><td><strong>Top Rail</strong></td><td>Cap rail PT or hardwood</td><td class="dim">95×45×3600mm</td><td class="qty">4</td><td>Min. 1100mm above deck (UK Reg Part K). Round-over edges.</td></tr>
+        <tr><td><strong>Balustrade</strong></td><td>Vertical spindles PT</td><td class="dim">32×32×900mm</td><td class="qty">~40</td><td>≤100mm gaps (UK Reg Part K — children's heads).</td></tr>
+        <tr><td><strong>Knee Braces</strong></td><td>45° diagonal braces at inner posts</td><td class="dim">47×100×900mm</td><td class="qty">6</td><td>2 each at P1, P5, P6 to resist racking. M10 bolt each end.</td></tr>
+        <tr><td><strong>M12 Bolts</strong></td><td>Galv. hex bolts + washers + nuts</td><td class="dim">M12×150mm</td><td class="qty">24</td><td>4 per post for structural beam-to-post connections.</td></tr>
+        <tr><td><strong>Decking Screws</strong></td><td>Stainless TX screws (C4 rated)</td><td class="dim">4.5×75mm</td><td class="qty">500</td><td>Use stainless in PT timber. Do not use zinc-plated.</td></tr>
+        <tr><td><strong>Beam Connectors</strong></td><td>Galv. timber plate connectors</td><td class="dim">4mm+</td><td class="qty">8</td><td>At inner beam-to-rim-beam joints.</td></tr>
+        <tr><td><strong>Post Caps</strong></td><td>Steel post caps 100×100</td><td class="dim">100×100</td><td class="qty">6</td><td>Prevent water ingress into end grain. Critical for longevity.</td></tr>
+        <tr><td><strong>Concrete</strong></td><td>Postcrete for spike collars (if soft ground)</td><td class="dim">20kg bags</td><td class="qty">6–12</td><td>May not be needed in firm ground with spike anchors.</td></tr>
+        <tr><td><strong>Stair/Ladder</strong></td><td>Child-safe access — separate design</td><td class="dim">—</td><td class="qty">1</td><td>Non-slip treads + handrail. Engineer separately.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- POSTS -->
+<div id="pane-posts" class="tab-pane">
+  <div class="post-grid">
+    <div class="post-card">
+      <div class="card-label">Post Sizing</div>
+      <h3>100×100 min. — 125×125 recommended</h3>
+      <p>Outer corner posts (P2, P3, P4) carry the highest lateral loads. Use 125×125 here for significantly better racking resistance at 1400mm height.</p>
+      <div class="mono-box">
+POST HEIGHT CALC<br>
+────────────────<br>
+Deck surface:   1400 mm<br>
+Rim beam depth:  150 mm<br>
+Post top:       1550 mm<br>
+Level tolerance: +100 mm<br>
+────────────────<br>
+Above ground:   1650 mm<br>
+In spike:        350 mm<br>
+────────────────<br>
+Total post:    ~2000 mm<br>
+Order: 2400mm, cut to fit
+      </div>
+    </div>
+    <div class="post-card">
+      <div class="card-label">Spike Anchor Notes</div>
+      <h3>750 mm drive-in spikes</h3>
+      <p>Suitable in firm, well-compacted ground only. Use concrete footings (750mm deep) if soil is clay or soft.</p>
+      <ul class="note-list">
+        <li><span class="bul">!</span><div>Confirm load rating ≥ 0.5 kN/m²</div></li>
+        <li><span class="bul">!</span><div>Drive with post driver, not hammer</div></li>
+        <li><span class="bul">!</span><div>Check plumb in both axes before fixing</div></li>
+        <li><span class="bul">!</span><div>P6 needs knee braces in both directions</div></li>
+        <li><span class="bul">✓</span><div>All timber near ground: UC4b PT treatment</div></li>
+      </ul>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Post</th><th>X (mm)</th><th>Y (mm)</th><th>Location</th><th>Priority</th></tr></thead>
+      <tbody>
+        <tr><td><strong>P1</strong></td><td class="dim">1700</td><td class="dim">0</td><td>Inner top of right arm</td><td>Knee brace</td></tr>
+        <tr><td><strong>P2</strong></td><td class="dim">2300</td><td class="dim">0</td><td>Top-right outer corner</td><td>Highest load — 125×125</td></tr>
+        <tr><td><strong>P3</strong></td><td class="dim">2300</td><td class="dim">2700</td><td>Bottom-right outer corner</td><td>Outer corner</td></tr>
+        <tr><td><strong>P4</strong></td><td class="dim">0</td><td class="dim">2700</td><td>Bottom-left outer corner</td><td>Outer corner</td></tr>
+        <tr><td><strong>P5</strong></td><td class="dim">0</td><td class="dim">2100</td><td>Inner left of bottom arm</td><td>Knee brace</td></tr>
+        <tr><td><strong>P6</strong></td><td class="dim">1700</td><td class="dim">2100</td><td>Re-entrant inner corner</td><td>Critical — 2× brace</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ASSEMBLY -->
+<div id="pane-assembly" class="tab-pane">
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-body"><strong>Mark Out & Drive Spikes</strong><p>String-line all 6 post positions. Drive spikes with a post driver. Check plumb in both axes before each one sets.</p></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-body"><strong>Set Posts to Height</strong><p>Insert posts into spikes. Use a laser or water level to mark 1550mm (deck + beam) on every post. Cut to length — recheck level across all posts.</p></div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-body"><strong>Fix Long Rim Beams First</strong><p>Clamp 2700mm beams to P2→P3 and P1→P6. Level along length. Through-bolt 2× M12 per beam-post joint. Then fit 2300mm beams P4→P3 and P5→P6.</p></div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-body"><strong>Short End Beams & Inner Beams</strong><p>Fit 600mm beams across P1→P2 and P4→P5. Add the mid-span inner beams to halve joist spans. Secure with joist hangers or connector plates.</p></div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-body"><strong>Install Knee Braces</strong><p>At P1, P5 and especially P6 fit 45° knee braces (post-to-beam, ~600mm each leg). M10 bolts each end. Critical for racking resistance on the L-shape.</p></div></div>
+    <div class="step"><div class="step-num">6</div><div class="step-body"><strong>Hang Joists</strong><p>Fix joist hangers to inner rim beam faces at 400mm centres. Drop in 47×100 joists. Check level and flush with beam top.</p></div></div>
+    <div class="step"><div class="step-num">7</div><div class="step-body"><strong>Lay Decking</strong><p>Fix boards at 90° to joists. 5mm drainage gap using spacers. 2× stainless screws per board per joist. Cut the L inner corner neatly with a jigsaw.</p></div></div>
+    <div class="step"><div class="step-num">8</div><div class="step-body"><strong>Handrail System</strong><p>Fix 75×75 handrail posts at max 400mm centres on all open edges. Top rail at min. 1100mm above deck. Spindles at max 100mm gaps (children's safety).</p></div></div>
+    <div class="step"><div class="step-num">9</div><div class="step-body"><strong>Finish & Treat</strong><p>Fit post caps. Apply end-grain preservative to all cut surfaces. Treat all exposed timber with deck oil or stain. Sand all edges for child safety.</p></div></div>
+    <div class="step"><div class="step-num">10</div><div class="step-body"><strong>Inspect & Sign Off</strong><p>Shake every post, test every rail. Consider a Building Control inspection. Photograph the build. Never allow children on deck before sign-off.</p></div></div>
+  </div>
+</div>
+
+<footer>
+  L-SHAPED TREEHOUSE DECK · SPEC SHEET v2.0<br>
+  All dims in mm · C16 PT timber throughout · Verify with structural engineer before build
+</footer>
+
+<script>
+// ─────────────────────────────────────────────
+// TAB SWITCHING
+// ─────────────────────────────────────────────
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('pane-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ─────────────────────────────────────────────
+// THREE.JS 3D RENDER
+// ─────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('three-canvas');
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x0d1a0d, 18, 35);
+
+  const camera = new THREE.PerspectiveCamera(45, W / H, 0.01, 100);
+  camera.position.set(4, 3.5, 5);
+  camera.lookAt(0, 0, 0);
+
+  // Lights
+  const ambient = new THREE.AmbientLight(0xfff5e0, 0.7);
+  scene.add(ambient);
+  const sun = new THREE.DirectionalLight(0xfff0c0, 1.4);
+  sun.position.set(5, 10, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  scene.add(sun);
+  const fill = new THREE.DirectionalLight(0xb0d8ff, 0.3);
+  fill.position.set(-4, 3, -3);
+  scene.add(fill);
+
+  // Ground plane
+  const groundGeo = new THREE.PlaneGeometry(20, 20);
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0x2a4a1a });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // ── MATERIALS ──
+  const timberMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  const deckMat   = new THREE.MeshLambertMaterial({ color: 0xC49A2A });
+  const railMat   = new THREE.MeshLambertMaterial({ color: 0x6B4C2A });
+  const spikeMat  = new THREE.MeshLambertMaterial({ color: 0x555555 });
+  const beamMat   = new THREE.MeshLambertMaterial({ color: 0xA07828 });
+
+  // Scale: 1mm = 0.001 units, then * 2 to make visible
+  // Actual dims in metres for Three: 2300→2.3, 2700→2.7, 600→0.6, 1400→1.4
+  // Centre the deck around origin
+  // L-shape: bottom-right of square. Right arm: x=[1.7,2.3], y=[0,2.7]. Bottom arm: x=[0,2.3], y=[2.1,2.7]
+  // Centre offset: cx = 1.15, cz = 1.35 (centre of bounding box 2.3 × 2.7)
+  const cx = 1.15, cz = 1.35;
+
+  const groups = { posts: new THREE.Group(), frame: new THREE.Group(), deck: new THREE.Group(), rails: new THREE.Group() };
+  Object.values(groups).forEach(g => scene.add(g));
+
+  function box(w, h, d, mat, x, y, z, group) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+    return m;
+  }
+
+  const DH = 1.4; // deck height
+  const postH = DH + 0.15; // post extends to beam top
+
+  // POST POSITIONS (x, z) — converted from mm
+  const posts = [
+    [1.7, 0.0],   // P1
+    [2.3, 0.0],   // P2
+    [2.3, 2.7],   // P3
+    [0.0, 2.7],   // P4
+    [0.0, 2.1],   // P5
+    [1.7, 2.1],   // P6
+  ];
+
+  posts.forEach(([px, pz]) => {
+    // Post body
+    box(0.1, postH, 0.1, timberMat, px - cx, postH/2, pz - cz, groups.posts);
+    // Spike
+    const spikeGeo = new THREE.ConeGeometry(0.04, 0.4, 6);
+    const spike = new THREE.Mesh(spikeGeo, spikeMat);
+    spike.position.set(px - cx, -0.2, pz - cz);
+    spike.castShadow = true;
+    groups.posts.add(spike);
+  });
+
+  // KNEE BRACES at P1, P5, P6
+  const braceLen = 0.55;
+  const bracePairs = [
+    [1.7, 0.0, 1, 0],  // P1: brace toward P2 (x+)
+    [0.0, 2.1, 0, -1], // P5: brace toward P4 (z+) — actually toward P6 (x+)
+    [1.7, 2.1, -1, 0], // P6: brace toward P5 (x-)
+    [1.7, 2.1, 0, 1],  // P6: brace toward P3 (z+)
+  ];
+  bracePairs.forEach(([px, pz, dx, dz]) => {
+    const braceGeo = new THREE.BoxGeometry(0.06, 0.06, braceLen * Math.sqrt(2));
+    const brace = new THREE.Mesh(braceGeo, beamMat);
+    brace.position.set(px - cx + dx*0.2, DH - 0.3, pz - cz + dz*0.2);
+    brace.rotation.y = Math.atan2(dx, dz);
+    const angle = Math.atan2(0.3, braceLen * 0.5);
+    brace.rotation.x = dz !== 0 ? angle : 0;
+    brace.rotation.z = dx !== 0 ? angle : 0;
+    brace.castShadow = true;
+    groups.frame.add(brace);
+  });
+
+  // RIM BEAMS
+  const bW = 0.095, bH = 0.15;
+  const beamY = DH - bH/2;
+  // Right arm top: P1→P2 (along x at z=0)
+  box(0.6, bH, bW, beamMat, 2.0 - cx, beamY, 0.0 - cz, groups.frame);
+  // Right arm right side: P2→P3 (along z at x=2.3)
+  box(bW, bH, 2.7, beamMat, 2.3 - cx, beamY, 1.35 - cz, groups.frame);
+  // Bottom edge: P3→P4 (along x at z=2.7)
+  box(2.3, bH, bW, beamMat, 1.15 - cx, beamY, 2.7 - cz, groups.frame);
+  // Left side bottom arm: P4→P5 (along z at x=0)
+  box(bW, bH, 0.6, beamMat, 0.0 - cx, beamY, 2.4 - cz, groups.frame);
+  // Inner notch horizontal: P5→P6 (along x at z=2.1)
+  box(1.7, bH, bW, beamMat, 0.85 - cx, beamY, 2.1 - cz, groups.frame);
+  // Inner notch vertical: P6→P1 (along z from 0→2.1 at x=1.7)
+  box(bW, bH, 2.1, beamMat, 1.7 - cx, beamY, 1.05 - cz, groups.frame);
+
+  // JOISTS — right arm (span x: 1.7→2.3, along z)
+  for (let z = 0.1; z < 2.7; z += 0.4) {
+    box(0.6, 0.1, 0.047, timberMat, 2.0 - cx, DH - 0.2, z - cz, groups.frame);
+  }
+  // JOISTS — bottom arm (span z: 2.1→2.7, along x)
+  for (let x = 0.15; x < 1.7; x += 0.4) {
+    box(0.047, 0.1, 0.6, timberMat, x - cx, DH - 0.2, 2.4 - cz, groups.frame);
+  }
+
+  // DECKING BOARDS
+  const boardW = 0.125, boardGap = 0.005, boardThick = 0.032;
+  const deckY = DH + boardThick/2;
+  // Right arm boards (running along z, stacked in x)
+  let bx = 1.7;
+  while (bx + boardW <= 2.3 + 0.01) {
+    const bxc = bx + boardW/2;
+    box(boardW, boardThick, 2.7, deckMat, bxc - cx, deckY, 1.35 - cz, groups.deck);
+    bx += boardW + boardGap;
+  }
+  // Bottom arm boards (running along x, stacked in z, exclude overlap with right arm)
+  let bz = 2.1;
+  while (bz + boardW <= 2.7 + 0.01) {
+    const bzc = bz + boardW/2;
+    box(1.7, boardThick, boardW, deckMat, 0.85 - cx, deckY, bzc - cz, groups.deck);
+    bz += boardW + boardGap;
+  }
+
+  // HANDRAIL POSTS & RAILS — outer perimeter
+  const railPostH = 1.1;
+  const railBaseY = DH + boardThick;
+  const railPostMat = railMat;
+  function railPost(px, pz) {
+    box(0.06, railPostH, 0.06, railPostMat, px - cx, railBaseY + railPostH/2, pz - cz, groups.rails);
+  }
+  function topRail(x1, z1, x2, z2) {
+    const len = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
+    const mx = (x1+x2)/2, mz = (z1+z2)/2;
+    const angle = Math.atan2(z2-z1, x2-x1);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.045, 0.095), railPostMat);
+    rail.position.set(mx - cx, railBaseY + railPostH, mz - cz);
+    rail.rotation.y = -angle;
+    rail.castShadow = true;
+    groups.rails.add(rail);
+  }
+  // Rail along top (P1→P2)
+  for (let rx = 1.7; rx <= 2.3; rx += 0.35) railPost(rx, 0.0);
+  topRail(1.7, 0, 2.3, 0);
+  // Right side (P2→P3)
+  for (let rz = 0.0; rz <= 2.7; rz += 0.35) railPost(2.3, rz);
+  topRail(2.3, 0, 2.3, 2.7);
+  // Bottom (P3→P4)
+  for (let rx = 0; rx <= 2.3; rx += 0.35) railPost(rx, 2.7);
+  topRail(0, 2.7, 2.3, 2.7);
+  // Left (P4→P5)
+  for (let rz = 2.1; rz <= 2.7; rz += 0.35) railPost(0, rz);
+  topRail(0, 2.1, 0, 2.7);
+  // Inner notch horizontal (P5→P6)
+  for (let rx = 0.0; rx <= 1.7; rx += 0.35) railPost(rx, 2.1);
+  topRail(0, 2.1, 1.7, 2.1);
+  // Inner notch vertical (P6→P1)
+  for (let rz = 0.0; rz <= 2.1; rz += 0.35) railPost(1.7, rz);
+  topRail(1.7, 0, 1.7, 2.1);
+
+  // Spindles (just as thin vertical boxes along each rail side, sampled)
+  function addSpindles(x1, z1, x2, z2, spacing) {
+    const len = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
+    const steps = Math.floor(len / spacing);
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const sx = x1 + (x2-x1)*t;
+      const sz = z1 + (z2-z1)*t;
+      box(0.032, 0.9, 0.032, railPostMat, sx-cx, railBaseY+0.45, sz-cz, groups.rails);
+    }
+  }
+  addSpindles(1.7,0, 2.3,0, 0.1);
+  addSpindles(2.3,0, 2.3,2.7, 0.1);
+  addSpindles(0,2.7, 2.3,2.7, 0.1);
+  addSpindles(0,2.1, 0,2.7, 0.1);
+  addSpindles(0,2.1, 1.7,2.1, 0.1);
+  addSpindles(1.7,0, 1.7,2.1, 0.1);
+
+  // ── VIEW MODES ──
+  let currentView = 'full';
+  function setViewVisibility(v) {
+    groups.deck.visible   = (v !== 'frame' && v !== 'posts');
+    groups.rails.visible  = (v === 'full');
+    groups.frame.visible  = (v !== 'posts');
+    groups.posts.visible  = true;
+  }
+
+  // Camera animation
+  let targetPos = new THREE.Vector3(4, 3.5, 5);
+  let targetLook = new THREE.Vector3(0, 0.7, 0);
+  let animating = false;
+
+  window.setView = function(v) {
+    currentView = v;
+    setViewVisibility(v);
+    document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-' + v).classList.add('active');
+    if (v === 'top') {
+      targetPos.set(0, 8, 0.001);
+      targetLook.set(0, 0, 0);
+    } else if (v === 'posts') {
+      targetPos.set(2.5, 1.5, 4);
+      targetLook.set(0, 0.7, 0);
+    } else {
+      targetPos.set(4, 3.5, 5);
+      targetLook.set(0, 0.7, 0);
+    }
+    animating = true;
+  };
+
+  window.resetCamera = function() {
+    targetPos.set(4, 3.5, 5);
+    targetLook.set(0, 0.7, 0);
+    animating = true;
+    document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-full').classList.add('active');
+    setViewVisibility('full');
+  };
+
+  // ── ORBIT CONTROLS (manual, no import needed) ──
+  let isDragging = false;
+  let prevX = 0, prevY = 0;
+  let spherical = { theta: 0.78, phi: 0.95, radius: 7.5 };
+
+  function updateCameraFromSpherical() {
+    camera.position.x = spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+    camera.position.y = spherical.radius * Math.cos(spherical.phi);
+    camera.position.z = spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+    camera.lookAt(0, 0.7, 0);
+  }
+  updateCameraFromSpherical();
+
+  canvas.addEventListener('mousedown', e => { isDragging = true; prevX = e.clientX; prevY = e.clientY; });
+  canvas.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    const dx = e.clientX - prevX, dy = e.clientY - prevY;
+    spherical.theta -= dx * 0.008;
+    spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi + dy * 0.008));
+    updateCameraFromSpherical();
+    prevX = e.clientX; prevY = e.clientY;
+  });
+  canvas.addEventListener('mouseup', () => isDragging = false);
+  canvas.addEventListener('mouseleave', () => isDragging = false);
+  canvas.addEventListener('wheel', e => {
+    spherical.radius = Math.max(2, Math.min(15, spherical.radius + e.deltaY * 0.01));
+    updateCameraFromSpherical();
+    e.preventDefault();
+  }, { passive: false });
+
+  // Touch
+  let lastTouchDist = 0;
+  let lastTouch = null;
+  canvas.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) { lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastTouchDist = Math.sqrt(dx*dx + dy*dy);
+    }
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length === 1 && lastTouch) {
+      const dx = e.touches[0].clientX - lastTouch.x;
+      const dy = e.touches[0].clientY - lastTouch.y;
+      spherical.theta -= dx * 0.01;
+      spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi + dy * 0.01));
+      updateCameraFromSpherical();
+      lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      spherical.radius = Math.max(2, Math.min(15, spherical.radius * (lastTouchDist / dist)));
+      lastTouchDist = dist;
+      updateCameraFromSpherical();
+    }
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => { lastTouch = null; });
+
+  // Auto-rotate when idle
+  let autoRotate = true;
+  canvas.addEventListener('mousedown', () => autoRotate = false);
+  canvas.addEventListener('touchstart', () => autoRotate = false);
+
+  // Resize
+  window.addEventListener('resize', () => {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  });
+
+  // ── RENDER LOOP ──
+  function animate() {
+    requestAnimationFrame(animate);
+    if (autoRotate) {
+      spherical.theta += 0.004;
+      updateCameraFromSpherical();
+    }
+    renderer.render(scene, camera);
+  }
+  animate();
+
+})();
+</script>
+</body>
+</html>
